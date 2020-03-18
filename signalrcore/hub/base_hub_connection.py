@@ -1,18 +1,20 @@
-import websocket
-import threading
-import requests
-
-import uuid
-import time
+import asyncio
 import ssl
-from signalrcore.messages.message_type import MessageType
-from signalrcore.messages.stream_invocation_message\
-    import StreamInvocationMessage
-from .reconnection import ConnectionStateChecker
-from signalrcore.messages.ping_message import PingMessage
-from .connection_state import ConnectionState
-from .errors import UnAuthorizedHubError, HubError
+import threading
+import time
+import uuid
+
+import requests
+import websockets
 from signalrcore.helpers import Helpers
+from signalrcore.messages.message_type import MessageType
+from signalrcore.messages.ping_message import PingMessage
+from signalrcore.messages.stream_invocation_message import \
+    StreamInvocationMessage
+
+from .connection_state import ConnectionState
+from .errors import HubError, UnAuthorizedHubError
+from .reconnection import ConnectionStateChecker
 
 
 class StreamHandler(object):
@@ -34,6 +36,37 @@ class StreamHandler(object):
         self.complete_callback = subscribe_callbacks["complete"]
         self.error_callback = subscribe_callbacks["error"]
 
+class WebSocketsConnection(object):
+
+    def __init__(self, hubConnection):
+        self._hubConnection = hubConnection
+
+    async def run(self):
+        url = self._hubConnection.url
+        headers = self._hubConnection.headers
+        max_size = 1_000_000_000
+        self._ws = await websockets.connect(url, 
+                                           max_size=max_size, 
+                                           extra_headers=headers)
+        self._hubConnection.on_open()
+        self._loop = asyncio.create_task(self._receive_messages())
+        
+    def send(self, data):
+        asyncio.create_task(self._ws.send(data))
+
+    async def close(self):
+        self._hubConnection.on_close()
+
+        if (self._ws is not None):
+            await self._ws.close()
+
+        if (self._loop is not None):
+            self._loop.cancel()
+
+    async def _receive_messages(self):
+        while (True):
+            message = await self._ws.recv()
+            self._hubConnection.on_message(message)           
 
 class BaseHubConnection(object):
     def __init__(
@@ -91,7 +124,7 @@ class BaseHubConnection(object):
         if len(self.logger.handlers) > 0:
             websocket.enableTrace(traceable, self.logger.handlers[0])
 
-    def start(self):
+    async def start(self):
         if not self.skip_negotiation:
             self.negotiate()
         self.logger.debug("Connection started")
@@ -100,27 +133,16 @@ class BaseHubConnection(object):
             return
         self.state = ConnectionState.connecting
         self.logger.debug("start url:" + self.url)
-        self._ws = websocket.WebSocketApp(
-            self.url,
-            header=self.headers,
-            on_message=self.on_message,
-            on_error=self.on_error,
-            on_close=self.on_close,
-            on_open=self.on_open,
-            )
-        self._thread = threading.Thread(
-            target=lambda: self._ws.run_forever(
-                sslopt={"cert_reqs": ssl.CERT_NONE} if not self.verify_ssl else {}
-            ))
-        self._thread.daemon = True
-        self._thread.start()
 
-    def stop(self):
+        self._ws = WebSocketsConnection(self)
+        await self._ws.run()
+
+    async def stop(self):
         self.logger.debug("Connection stop")
         if self.state == ConnectionState.connected:
-            self._ws.close()
+            await self._ws.close()
             self.connection_checker.stop()
-            self.state = ConnectionState.disconnected
+            self.state == ConnectionState.disconnected
 
     def register_handler(self, event, callback):
         self.logger.debug("Handler registered started {0}".format(event))

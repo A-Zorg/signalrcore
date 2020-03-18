@@ -183,11 +183,11 @@ class HubConnectionBuilder(object):
     def stream(self, event, event_params):
         return self.hub.stream(event, event_params)
 
-    def start(self):
-        self.hub.start()
+    async def start(self):
+        await self.hub.start()
 
-    def stop(self):
-        self.hub.stop()
+    async def stop(self):
+        await self.hub.stop()
 
     def send(self, method, arguments):
         if type(arguments) is not list and type(arguments) is not Subject:
