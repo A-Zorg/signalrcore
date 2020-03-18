@@ -194,8 +194,14 @@ class BaseHubConnection(object):
                     filter(
                         lambda h: h.invocation_id == message.invocation_id,
                         self.stream_handlers))
-                for handler in fired_handlers:
-                    handler.complete_callback(message)
+
+                if message.error is None:
+                    for handler in fired_handlers:
+                        handler.complete_callback(message)
+                else:
+                    self.logger.error(message.error)
+                    for handler in fired_handlers:
+                        handler.error_callback(message)
 
                 # unregister handler
                 self.stream_handlers = list(
