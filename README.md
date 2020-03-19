@@ -9,7 +9,7 @@ See the following samples to get an idea of the changes:
 ```python
 import asyncio
 
-from signalrcore.hub_connection_builder import HubConnectionBuilder
+from signalrcore_async.hub_connection_builder import HubConnectionBuilder
 
 async def main():
 
