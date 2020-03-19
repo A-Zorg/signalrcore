@@ -50,8 +50,10 @@ class InvocationMessage(BaseHeadersMessage):
         self.arguments = arguments
 
     def __repr__(self):
-        return "InvocationMessage: invocation_id {0}, target {1}, arguments {2}".format(self.invocation_id, self.target, self.arguments)
-
+        if (self.invocation_id == 0):
+            return "InvocationMessage: target {1}, arguments {2}".format(self.invocation_id, self.target, self.arguments)
+        else:
+            return "InvocationMessage: invocation_id {0}, target {1}, arguments {2}".format(self.invocation_id, self.target, self.arguments)
 
 class InvocationClientStreamMessage(BaseHeadersMessage):
     def __init__(

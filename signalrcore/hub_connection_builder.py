@@ -39,7 +39,6 @@ class HubConnectionBuilder(object):
         self.reconnection_handler = None
         self.keep_alive_interval = None
         self.verify_ssl = True
-        self.enable_trace = False  # socket trace
         self.skip_negotiation = False # By default do not skip negotiation
 
     def with_url(
@@ -72,7 +71,7 @@ class HubConnectionBuilder(object):
         self.options = self.options if options is None else options
         return self
 
-    def configure_logging(self, logging_level, socket_trace=False, handler=None):
+    def configure_logging(self, logging_level, handler=None):
         """
         Confiures signalr logging
         :param handler:  custom logging handler
@@ -82,7 +81,6 @@ class HubConnectionBuilder(object):
         :return: instance hub with logging configured
         """
         Helpers.configure_logger(logging_level, handler)
-        self.enable_trace = socket_trace
         return self
 
     def build(self):
@@ -125,9 +123,6 @@ class HubConnectionBuilder(object):
                 headers=self.headers,
                 verify_ssl=self.verify_ssl,
                 skip_negotiation=self.skip_negotiation)
-
-        if self.enable_trace:
-            self.hub.enable_trace(True)
 
         return self
 
@@ -180,14 +175,23 @@ class HubConnectionBuilder(object):
         """
         self.hub.register_handler(event, callback_function)
 
-    def stream(self, event, event_params):
-        return self.hub.stream(event, event_params)
+    async def stream(self, event, event_params, on_next_item):
+        await self.hub.stream(event, event_params, on_next_item)
 
     async def start(self):
         await self.hub.start()
 
     async def stop(self):
         await self.hub.stop()
+
+    async def invoke(self, method, arguments):
+        if type(arguments) is not list:
+            raise HubConnectionError("Arguments of a message must be a list")
+
+        if type(arguments) is list:
+            invocation_id = str(uuid.uuid4())
+            message = InvocationMessage({}, invocation_id, method, arguments)
+            return await self.hub.invoke(message)
 
     def send(self, method, arguments):
         if type(arguments) is not list and type(arguments) is not Subject:
@@ -196,7 +200,7 @@ class HubConnectionBuilder(object):
         if type(arguments) is list:
             self.hub.send(InvocationMessage(
                 {},
-                str(uuid.uuid4()),
+                0,
                 method,
                 arguments))
 

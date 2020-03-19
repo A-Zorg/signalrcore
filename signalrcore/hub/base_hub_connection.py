@@ -22,21 +22,25 @@ class StreamHandler(object):
         self.event = event
         self.invocation_id = invocation_id
         self.next_callback = None
-        self.complete_callback = None
-        self.error_callback = None
 
     def subscribe(self, subscribe_callbacks):
         if subscribe_callbacks is None:
             raise ValueError(" subscribe object must be {0}".format({
-                "next": None,
-                "complete": None,
-                "error": None
+                "next": None
                 }))
         self.next_callback = subscribe_callbacks["next"]
-        self.complete_callback = subscribe_callbacks["complete"]
-        self.error_callback = subscribe_callbacks["error"]
+
+class async_event(asyncio.Event):
+    def set(self):
+        self._loop.call_soon_threadsafe(super().set)
 
 class WebSocketsConnection(object):
+
+    last_result = None
+    last_invocation_id = None
+    last_error = None
+    event = None
+    loop = None
 
     def __init__(self, hubConnection):
         self._hubConnection = hubConnection
@@ -45,14 +49,54 @@ class WebSocketsConnection(object):
         url = self._hubConnection.url
         headers = self._hubConnection.headers
         max_size = 1_000_000_000
-        self._ws = await websockets.connect(url, 
-                                           max_size=max_size, 
-                                           extra_headers=headers)
-        self._hubConnection.on_open()
-        self._loop = asyncio.create_task(self._receive_messages())
         
+        # connect
+        self._ws = await websockets.connect(url, max_size=max_size, extra_headers=headers)
+        self._hubConnection.logger.debug("-- web socket open --")
+
+        # handshake
+        msg = self._hubConnection.protocol.handshake_message()
+        self._hubConnection.send(msg)
+        response = await self._ws.recv()
+        self._hubConnection.evaluate_handshake(response)
+
+        if self._hubConnection.on_connect is not None and callable(self._hubConnection.on_connect):
+            self._hubConnection.state = ConnectionState.connected
+            self._hubConnection.on_connect()
+
+        # message loop
+        self.loop = asyncio.create_task(self._receive_messages())
+        
+    # actually, a different design is needed. server can send messages at any time, so event based awaitable design would 
+    # more suitable
+    async def invoke(self, data, invocationId):
+
+        self.event = async_event()
+        self.last_invocation_id = invocationId   
+            
+        await self._ws.send(data)
+        await self.event.wait()
+
+        if (self.last_error is not None):
+            raise self.last_error
+        else:
+            return self.last_result
+
     def send(self, data):
         asyncio.create_task(self._ws.send(data))
+
+    def handle_completion(self, message):
+        if message.invocation_id == self.last_invocation_id:
+            if message.error is not None:
+                self.last_result = None
+                self.last_error = message.error
+                self.event.set() 
+            else:
+                self.last_result = message.result
+                self.last_error = None
+                self.event.set()
+
+        self.last_invocation_id = -1
 
     async def close(self):
         self._hubConnection.on_close()
@@ -60,13 +104,18 @@ class WebSocketsConnection(object):
         if (self._ws is not None):
             await self._ws.close()
 
-        if (self._loop is not None):
-            self._loop.cancel()
+        self.last_error = Exception("The connection was closed unexpectedly.")
+
+        if (self.event is not None):
+            self.event.set()
+
+        if (self.loop is not None):
+            self.loop.cancel()
 
     async def _receive_messages(self):
         while (True):
-            message = await self._ws.recv()
-            self._hubConnection.on_message(message)           
+            raw_message = await self._ws.recv()
+            self._hubConnection.on_message(raw_message)
 
 class BaseHubConnection(object):
     def __init__(
@@ -120,10 +169,6 @@ class BaseHubConnection(object):
             self.token = data["accessToken"]
             self.headers = {"Authorization": "Bearer " + self.token}
 
-    def enable_trace(self, traceable):
-        if len(self.logger.handlers) > 0:
-            websocket.enableTrace(traceable, self.logger.handlers[0])
-
     async def start(self):
         if not self.skip_negotiation:
             self.negotiate()
@@ -162,11 +207,6 @@ class BaseHubConnection(object):
             self.logger.error(msg.error)
             raise ValueError("Handshake error {0}".format(msg.error))
 
-    def on_open(self):
-        self.logger.debug("-- web socket open --")
-        msg = self.protocol.handshake_message()
-        self.send(msg)
-
     def on_close(self):
         self.logger.debug("-- web socket close --")
         if self.on_disconnect is not None and callable(self.on_disconnect):
@@ -177,16 +217,11 @@ class BaseHubConnection(object):
         self.logger.error("{0} {1}".format(error, type(error)))
 
     def on_message(self, raw_message):
-        self.logger.debug("Message received{0}".format(raw_message))
-        self.connection_checker.last_message = time.time()
-        if not self.handshake_received:
-            self.evaluate_handshake(raw_message)
-            if self.on_connect is not None and callable(self.on_connect):
-                self.state = ConnectionState.connected
-                self.on_connect()
-            return
 
+        # self.logger.debug("Message received{0}".format(raw_message))
+        self.connection_checker.last_message = time.time()
         messages = self.protocol.parse_messages(raw_message)
+
         for message in messages:
             if message.type == MessageType.invocation_binding_failure:
                 self.logger.error(message)
@@ -208,28 +243,11 @@ class BaseHubConnection(object):
 
             if message.type == MessageType.close:
                 self.logger.info("Close message received from server")
-                self.stop()
+                asyncio.create_task(self.stop())
                 return
 
             if message.type == MessageType.completion:
-                fired_handlers = list(
-                    filter(
-                        lambda h: h.invocation_id == message.invocation_id,
-                        self.stream_handlers))
-
-                if message.error is None:
-                    for handler in fired_handlers:
-                        handler.complete_callback(message)
-                else:
-                    self.logger.error(message.error)
-                    for handler in fired_handlers:
-                        handler.error_callback(message)
-
-                # unregister handler
-                self.stream_handlers = list(
-                    filter(
-                        lambda h: h.invocation_id != message.invocation_id,
-                        self.stream_handlers))
+                self._ws.handle_completion(message)
 
             if message.type == MessageType.stream_item:
                 fired_handlers = list(
@@ -247,23 +265,18 @@ class BaseHubConnection(object):
                 pass
 
             if message.type == MessageType.cancel_invocation:
-                fired_handlers = list(
-                    filter(
-                        lambda h: h.invocation_id == message.invocation_id,
-                        self.stream_handlers))
-                if len(fired_handlers) == 0:
-                    self.logger.warning(
-                        "id '{0}' hasn't fire any stream handler".format(
-                            message.invocation_id))
+                pass # not implemented
 
-                for handler in fired_handlers:
-                    handler.error_callback(message)
-
-                # unregister handler
-                self.stream_handlers = list(
-                    filter(
-                        lambda h: h.invocation_id != message.invocation_id,
-                        self.stream_handlers))
+    async def invoke(self, message):
+        self.logger.debug("Sending message {0}".format(message))
+        try:
+            result = await self._ws.invoke(self.protocol.encode(message), message.invocationId)
+            self.connection_checker.last_message = time.time()
+            if self.reconnection_handler is not None:
+                self.reconnection_handler.reset()
+            return result
+        except Exception as ex:
+            raise ex
 
     def send(self, message):
         self.logger.debug("Sending message {0}".format(message))
@@ -272,18 +285,6 @@ class BaseHubConnection(object):
             self.connection_checker.last_message = time.time()
             if self.reconnection_handler is not None:
                 self.reconnection_handler.reset()
-        except (
-                websocket._exceptions.WebSocketConnectionClosedException,
-                OSError) as ex:
-            self.handshake_received = False
-            self.logger.error("Connection closed {0}".format(ex))
-            self.state = ConnectionState.disconnected
-            if self.reconnection_handler is None:
-                if self.on_disconnect is not None and callable(self.on_disconnect):
-                    self.on_disconnect()
-                raise ValueError(str(ex))
-            # Connection closed
-            self.handle_reconnect()
         except Exception as ex:
             raise ex
 
@@ -309,14 +310,14 @@ class BaseHubConnection(object):
             self.reconnection_handler.reconnecting = False
             self.connection_alive = False
 
-    def stream(self, event, event_params):
+    async def stream(self, event, event_params, on_next_item):
         invocation_id = str(uuid.uuid4())
         stream_obj = StreamHandler(event, invocation_id)
+        stream_obj.subscribe({ "next": on_next_item })
         self.stream_handlers.append(stream_obj)
-        self.send(
+        await self.invoke(
             StreamInvocationMessage(
                 {},
                 invocation_id,
                 event,
                 event_params))
-        return stream_obj
