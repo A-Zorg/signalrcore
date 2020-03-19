@@ -5,7 +5,7 @@ import time
 import uuid
 
 from subprocess import Popen, PIPE
-from signalrcore.hub_connection_builder import HubConnectionBuilder
+from signalrcore_async.hub_connection_builder import HubConnectionBuilder
 
 class TestSendMethod(unittest.TestCase):
     container_id = "netcore_chat_app"

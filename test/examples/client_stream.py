@@ -2,8 +2,8 @@
 import time
 import sys
 import logging
-from signalrcore.hub_connection_builder import HubConnectionBuilder
-from signalrcore.subject import Subject
+from signalrcore_async.hub_connection_builder import HubConnectionBuilder
+from signalrcore_async.subject import Subject
 
 
 def input_with_default(input_text, default_value):

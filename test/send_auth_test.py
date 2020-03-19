@@ -5,7 +5,7 @@ import time
 import uuid
 import requests
 from subprocess import Popen, PIPE
-from signalrcore.hub_connection_builder import HubConnectionBuilder
+from signalrcore_async.hub_connection_builder import HubConnectionBuilder
 
 
 class TestSendAuthMethod(unittest.TestCase):

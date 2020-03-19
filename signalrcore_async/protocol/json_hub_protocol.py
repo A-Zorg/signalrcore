@@ -6,7 +6,7 @@ from .base_hub_protocol import BaseHubProtocol
 from ..messages.message_type import MessageType
 from json import JSONEncoder
 
-from signalrcore.helpers import Helpers
+from signalrcore_async.helpers import Helpers
 
 
 class MyEncoder(JSONEncoder):

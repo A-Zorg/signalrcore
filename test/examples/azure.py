@@ -1,7 +1,7 @@
 import logging
 import sys
 import requests
-from signalrcore.hub_connection_builder import HubConnectionBuilder
+from signalrcore_async.hub_connection_builder import HubConnectionBuilder
 
 
 def input_with_default(input_text, default_value):

@@ -5,8 +5,8 @@ import time
 import uuid
 
 from subprocess import Popen, PIPE
-from signalrcore.hub_connection_builder import HubConnectionBuilder
-from signalrcore.subject import Subject
+from signalrcore_async.hub_connection_builder import HubConnectionBuilder
+from signalrcore_async.subject import Subject
 class TestSendMethod(unittest.TestCase):
     container_id = "netcore_stream_app"
     connection = None

@@ -1,5 +1,5 @@
 import requests
-from signalrcore.hub_connection_builder import HubConnectionBuilder
+from signalrcore_async.hub_connection_builder import HubConnectionBuilder
 
 
 def print_message(x):

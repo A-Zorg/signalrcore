@@ -6,10 +6,10 @@ import uuid
 
 import requests
 import websockets
-from signalrcore.helpers import Helpers
-from signalrcore.messages.message_type import MessageType
-from signalrcore.messages.ping_message import PingMessage
-from signalrcore.messages.stream_invocation_message import \
+from signalrcore_async.helpers import Helpers
+from signalrcore_async.messages.message_type import MessageType
+from signalrcore_async.messages.ping_message import PingMessage
+from signalrcore_async.messages.stream_invocation_message import \
     StreamInvocationMessage
 
 from .connection_state import ConnectionState
