@@ -78,7 +78,7 @@ class WebSocketsConnection(object):
         await self.event.wait()
 
         if (self.last_error is not None):
-            raise self.last_error
+            raise Exception(self.last_error)
         else:
             return self.last_result
 
@@ -104,7 +104,7 @@ class WebSocketsConnection(object):
         if (self._ws is not None):
             await self._ws.close()
 
-        self.last_error = Exception("The connection was closed unexpectedly.")
+        self.last_error = "The connection was closed unexpectedly."
 
         if (self.event is not None):
             self.event.set()
