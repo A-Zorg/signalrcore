@@ -12,6 +12,7 @@ from signalrcore_async.messages.ping_message import PingMessage
 from signalrcore_async.messages.stream_invocation_message import \
     StreamInvocationMessage
 
+from ..protocol.json_hub_protocol import JsonHubProtocol
 from .connection_state import ConnectionState
 from .errors import HubError, UnAuthorizedHubError
 from .reconnection import ConnectionStateChecker
@@ -56,7 +57,7 @@ class WebSocketsConnection(object):
 
         # handshake
         msg = self._hubConnection.protocol.handshake_message()
-        self._hubConnection.send(msg)
+        self._hubConnection.send(msg, self._hubConnection.handshake_protocol)
         response = await self._ws.recv()
         self._hubConnection.evaluate_handshake(response)
 
@@ -67,13 +68,11 @@ class WebSocketsConnection(object):
         # message loop
         self.loop = asyncio.create_task(self._receive_messages())
         
-    # actually, a different design is needed. server can send messages at any time, so event based awaitable design would 
-    # more suitable
     async def invoke(self, data, invocationId):
 
         self.event = async_event()
-        self.last_invocation_id = invocationId   
-            
+        self.last_invocation_id = invocationId
+        
         await self._ws.send(data)
         await self.event.wait()
 
@@ -131,6 +130,7 @@ class BaseHubConnection(object):
         self.logger = Helpers.get_logger()
         self.url = url
         self.protocol = protocol
+        self.handshake_protocol = JsonHubProtocol()
         self.headers = headers
         self.handshake_received = False
         self.token = None # auth
@@ -195,7 +195,7 @@ class BaseHubConnection(object):
 
     def evaluate_handshake(self, message):
         self.logger.debug("Evaluating handshake {0}".format(message))
-        msg = self.protocol.decode_handshake(message)
+        msg = self.handshake_protocol.decode_handshake(message)
         if msg.error is None or msg.error == "":
             self.handshake_received = True
             self.state = ConnectionState.connected
@@ -267,10 +267,11 @@ class BaseHubConnection(object):
             if message.type == MessageType.cancel_invocation:
                 pass # not implemented
 
-    async def invoke(self, message):
+    async def invoke(self, message, protocol=None):
         self.logger.debug("Sending message {0}".format(message))
         try:
-            result = await self._ws.invoke(self.protocol.encode(message), message.invocationId)
+            protocol = self.protocol if protocol is None else protocol
+            result = await self._ws.invoke(protocol.encode(message), message.invocation_id)
             self.connection_checker.last_message = time.time()
             if self.reconnection_handler is not None:
                 self.reconnection_handler.reset()
@@ -278,10 +279,11 @@ class BaseHubConnection(object):
         except Exception as ex:
             raise ex
 
-    def send(self, message):
+    def send(self, message, protocol=None):
         self.logger.debug("Sending message {0}".format(message))
         try:
-            self._ws.send(self.protocol.encode(message))
+            protocol = self.protocol if protocol is None else protocol
+            self._ws.send(protocol.encode(message))
             self.connection_checker.last_message = time.time()
             if self.reconnection_handler is not None:
                 self.reconnection_handler.reset()

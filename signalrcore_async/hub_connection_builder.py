@@ -7,6 +7,7 @@ from .hub.reconnection import \
 from .helpers import Helpers
 from .messages.invocation_message import InvocationMessage
 from .protocol.json_hub_protocol import JsonHubProtocol
+from .protocol.messagepack_protocol import MessagepackProtocol
 from .subject import Subject
 
 
@@ -91,7 +92,8 @@ class HubConnectionBuilder(object):
         self.has_auth_configured = token is not None
 
         """
-        self.protocol = JsonHubProtocol()
+        # self.protocol = JsonHubProtocol()
+        self.protocol = MessagepackProtocol()
         self.headers = {}
 
         if "headers" in self.options.keys() and type(self.options["headers"]) is dict:
