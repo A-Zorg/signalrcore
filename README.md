@@ -1,5 +1,8 @@
 # SignalR core client
 
+![Pypi](https://img.shields.io/pypi/v/signalrcore-async.svg)
+![Pypi - downloads month](https://img.shields.io/pypi/dm/signalrcore-async.svg)
+
 This signalr core client is forked from mandrewcito. The main difference is the replacement of the synchronous ```websocket-client``` library by the asynchronous ```websockets``` library. Additionally, all methods have been made asynchronous.
 
 See https://github.com/mandrewcito/signalrcore for a general introduction.
