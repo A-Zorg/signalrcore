@@ -7,12 +7,10 @@ import uuid
 import requests
 import websockets
 from signalrcore_async.helpers import Helpers
-from signalrcore_async.messages.message_type import MessageType
-from signalrcore_async.messages.ping_message import PingMessage
-from signalrcore_async.messages.stream_invocation_message import \
-    StreamInvocationMessage
+from signalrcore_async.messages import (InvocationMessage, MessageType,
+                                        PingMessage, StreamInvocationMessage)
 
-from ..protocol.json_hub_protocol import JsonHubProtocol
+from ..protocol.json import JsonHubProtocol
 from .connection_state import ConnectionState
 from .errors import HubError, UnAuthorizedHubError
 from .reconnection import ConnectionStateChecker
@@ -44,26 +42,26 @@ class WebSocketsConnection(object):
     loop = None
 
     def __init__(self, hubConnection):
-        self._hubConnection = hubConnection
+        self._hub_connection = hubConnection
 
     async def run(self):
-        url = self._hubConnection.url
-        headers = self._hubConnection.headers
+        url = self._hub_connection.url
+        headers = self._hub_connection.headers
         max_size = 1_000_000_000
         
         # connect
         self._ws = await websockets.connect(url, max_size=max_size, extra_headers=headers)
-        self._hubConnection.logger.debug("-- web socket open --")
+        self._hub_connection.logger.debug("-- web socket open --")
 
         # handshake
-        msg = self._hubConnection.protocol.handshake_message()
-        self._hubConnection.send(msg, self._hubConnection.handshake_protocol)
+        msg = self._hub_connection.protocol.handshake_message()
+        self._hub_connection._internal_send(msg, self._hub_connection.handshake_protocol)
         response = await self._ws.recv()
-        self._hubConnection.evaluate_handshake(response)
+        self._hub_connection.evaluate_handshake(response)
 
-        if self._hubConnection.on_connect is not None and callable(self._hubConnection.on_connect):
-            self._hubConnection.state = ConnectionState.connected
-            self._hubConnection.on_connect()
+        if self._hub_connection.on_connect is not None and callable(self._hub_connection.on_connect):
+            self._hub_connection.state = ConnectionState.connected
+            self._hub_connection.on_connect()
 
         # message loop
         self.loop = asyncio.create_task(self._receive_messages())
@@ -98,7 +96,10 @@ class WebSocketsConnection(object):
         self.last_invocation_id = -1
 
     async def close(self):
-        self._hubConnection.on_close()
+        self._hub_connection.logger.debug("-- web socket close --")
+
+        if self._hub_connection.on_disconnect is not None and callable(self._hub_connection.on_disconnect):
+            self._hub_connection.on_disconnect()
 
         if (self._ws is not None):
             await self._ws.close()
@@ -114,7 +115,7 @@ class WebSocketsConnection(object):
     async def _receive_messages(self):
         while (True):
             raw_message = await self._ws.recv()
-            self._hubConnection.on_message(raw_message)
+            self._hub_connection.on_message(raw_message)
 
 class BaseHubConnection(object):
     def __init__(
@@ -142,7 +143,7 @@ class BaseHubConnection(object):
         self._ws = None
         self.verify_ssl = verify_ssl
         self.connection_checker = ConnectionStateChecker(
-            lambda: self.send(PingMessage()),
+            lambda: self._internal_send(PingMessage()),
             keep_alive_interval
         )
         self.reconnection_handler = reconnection_handler
@@ -207,15 +208,6 @@ class BaseHubConnection(object):
             self.logger.error(msg.error)
             raise ValueError("Handshake error {0}".format(msg.error))
 
-    def on_close(self):
-        self.logger.debug("-- web socket close --")
-        if self.on_disconnect is not None and callable(self.on_disconnect):
-            self.on_disconnect()
-
-    def on_error(self, error):
-        self.logger.debug("-- web socket error --")
-        self.logger.error("{0} {1}".format(error, type(error)))
-
     def on_message(self, raw_message):
 
         # self.logger.debug("Message received{0}".format(raw_message))
@@ -267,26 +259,64 @@ class BaseHubConnection(object):
             if message.type == MessageType.cancel_invocation:
                 pass # not implemented
 
-    async def invoke(self, message, protocol=None):
-        self.logger.debug("Sending message {0}".format(message))
+    async def invoke(self, method, arguments):
+        if type(arguments) is not list:
+            raise HubConnectionError("Arguments of a message must be a list")
+
+        if type(arguments) is list:
+            invocation_id = str(uuid.uuid4())
+            message = InvocationMessage({}, invocation_id, method, arguments)
+            return await self._internal_invoke(message)
+
+
+    async def _internal_invoke(self, message, protocol=None):
+
+        self.logger.debug("Sending message.".format(message))
+
         try:
             protocol = self.protocol if protocol is None else protocol
-            result = await self._ws.invoke(protocol.encode(message), message.invocation_id)
+            invocation_id = message.invocation_id
+            result = await self._ws.invoke(protocol.encode(message), invocation_id)
+
             self.connection_checker.last_message = time.time()
+
             if self.reconnection_handler is not None:
                 self.reconnection_handler.reset()
+
             return result
+            
         except Exception as ex:
             raise ex
 
-    def send(self, message, protocol=None):
+    def send(self, method, arguments):
+        if type(arguments) is not list and type(arguments) is not Subject:
+            raise HubConnectionError("Arguments of a message must be a list or subject")
+
+        if type(arguments) is list:
+            self._internal_send(InvocationMessage(
+                {},
+                0,
+                method,
+                arguments))
+
+        if type(arguments) is Subject:
+            arguments.connection = self
+            arguments.target = method
+            arguments.start()
+
+    def _internal_send(self, message, protocol=None):
+
         self.logger.debug("Sending message {0}".format(message))
+
         try:
             protocol = self.protocol if protocol is None else protocol
+
             self._ws.send(protocol.encode(message))
             self.connection_checker.last_message = time.time()
+
             if self.reconnection_handler is not None:
                 self.reconnection_handler.reset()
+
         except Exception as ex:
             raise ex
 
@@ -317,9 +347,24 @@ class BaseHubConnection(object):
         stream_obj = StreamHandler(event, invocation_id)
         stream_obj.subscribe({ "next": on_next_item })
         self.stream_handlers.append(stream_obj)
-        await self.invoke(
+        await self._internal_invoke(
             StreamInvocationMessage(
                 {},
                 invocation_id,
                 event,
                 event_params))
+
+    def on_close(self, callback):
+        self.on_disconnect = callback
+
+    def on_open(self, callback):
+        self.on_connect = callback
+
+    def on(self, event, callback_function):
+        """
+        Register a callback on the specified event
+        :param event: Event name
+        :param callback_function: callback function, arguments will be binded
+        :return:
+        """
+        self.register_handler(event, callback_function)

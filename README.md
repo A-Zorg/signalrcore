@@ -10,6 +10,7 @@ See the following samples to get an idea of the changes:
 import asyncio
 
 from signalrcore_async.hub_connection_builder import HubConnectionBuilder
+from signalrcore_async.protocol.msgpack import MessagePackHubProtocol
 
 async def main():
 
@@ -21,6 +22,8 @@ async def main():
     
     connection = HubConnectionBuilder()\
                 .with_url(hub_url)\
+                # optional: use MessagePack instead of json protocol
+                .with_hub_protocol(MessagePackHubProtocol())\
                 .build()
 
     try:
@@ -51,5 +54,6 @@ def _on_progress_changed(self, args):
     progress = args[0]
     print(f"Progress: {progress * 100:.0f}%")
 
+# run main task
 asyncio.run(main())
 ```

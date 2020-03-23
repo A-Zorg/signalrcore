@@ -1,15 +1,6 @@
 import json
 
-from ..messages.handshake.request import HandshakeRequestMessage
-from ..messages.handshake.response import HandshakeResponseMessage
-from ..messages.invocation_message import InvocationMessage  # 1
-from ..messages.stream_item_message import StreamItemMessage  # 2
-from ..messages.completion_message import CompletionMessage  # 3
-from ..messages.stream_invocation_message import StreamInvocationMessage  # 4
-from ..messages.cancel_invocation_message import CancelInvocationMessage  # 5
-from ..messages.ping_message import PingMessage  # 6
-from ..messages.close_message import CloseMessage  # 7
-from ..messages.message_type import MessageType
+from ..messages import *
 
 
 class BaseHubProtocol(object):

@@ -1,10 +1,7 @@
-import uuid
 import threading
-
-
-from .messages.invocation_message import InvocationClientStreamMessage
-from .messages.stream_item_message import StreamItemMessage
-from .messages.completion_message import CompletionClientStreamMessage
+import uuid
+from .messages import (CompletionClientStreamMessage,
+                       InvocationClientStreamMessage, StreamItemMessage)
 
 
 class Subject(object):

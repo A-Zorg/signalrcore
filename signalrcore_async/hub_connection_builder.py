@@ -1,15 +1,13 @@
-import uuid
 import logging
-from .hub.base_hub_connection import BaseHubConnection
-from .hub.auth_hub_connection import AuthHubConnection
-from .hub.reconnection import \
-    IntervalReconnectionHandler, RawReconnectionHandler, ReconnectionType
-from .helpers import Helpers
-from .messages.invocation_message import InvocationMessage
-from .protocol.json_hub_protocol import JsonHubProtocol
-from .protocol.messagepack_protocol import MessagepackProtocol
-from .subject import Subject
+import uuid
 
+from .helpers import Helpers
+from .hub.auth_hub_connection import AuthHubConnection
+from .hub.base_hub_connection import BaseHubConnection
+from .hub.reconnection import (IntervalReconnectionHandler,
+                               RawReconnectionHandler, ReconnectionType)
+from .protocol.json import JsonHubProtocol
+from .subject import Subject
 
 
 class HubConnectionError(ValueError):
@@ -36,6 +34,7 @@ class HubConnectionBuilder(object):
         self.headers = None
         self.negotiate_headers = None
         self.has_auth_configured = None
+        self.use_messagepack_protocol = None
         self.protocol = None
         self.reconnection_handler = None
         self.keep_alive_interval = None
@@ -46,7 +45,7 @@ class HubConnectionBuilder(object):
             self,
             hub_url,
             options=None):
-        if hub_url is None or hub_url.strip() is "":
+        if hub_url is None or hub_url.strip() == "":
             raise HubConnectionError("hub_url must be a valid url.")
 
         if options is not None and type(options) != dict:
@@ -92,8 +91,9 @@ class HubConnectionBuilder(object):
         self.has_auth_configured = token is not None
 
         """
-        # self.protocol = JsonHubProtocol()
-        self.protocol = MessagepackProtocol()
+        if self.protocol is None:
+            self.protocol = JsonHubProtocol()  
+
         self.headers = {}
 
         if "headers" in self.options.keys() and type(self.options["headers"]) is dict:
@@ -126,6 +126,10 @@ class HubConnectionBuilder(object):
                 verify_ssl=self.verify_ssl,
                 skip_negotiation=self.skip_negotiation)
 
+        return self.hub
+
+    def with_hub_protocol(self, protocol):
+        self.protocol = protocol
         return self
 
     def with_automatic_reconnect(self, data):
@@ -161,52 +165,3 @@ class HubConnectionBuilder(object):
                 intervals
             )
         return self
-
-    def on_close(self, callback):
-        self.hub.on_disconnect = callback
-
-    def on_open(self, callback):
-        self.hub.on_connect = callback
-
-    def on(self, event, callback_function):
-        """
-        Register a callback on the specified event
-        :param event: Event name
-        :param callback_function: callback function, arguments will be binded
-        :return:
-        """
-        self.hub.register_handler(event, callback_function)
-
-    async def stream(self, event, event_params, on_next_item):
-        await self.hub.stream(event, event_params, on_next_item)
-
-    async def start(self):
-        await self.hub.start()
-
-    async def stop(self):
-        await self.hub.stop()
-
-    async def invoke(self, method, arguments):
-        if type(arguments) is not list:
-            raise HubConnectionError("Arguments of a message must be a list")
-
-        if type(arguments) is list:
-            invocation_id = str(uuid.uuid4())
-            message = InvocationMessage({}, invocation_id, method, arguments)
-            return await self.hub.invoke(message)
-
-    def send(self, method, arguments):
-        if type(arguments) is not list and type(arguments) is not Subject:
-            raise HubConnectionError("Arguments of a message must be a list or subject")
-
-        if type(arguments) is list:
-            self.hub.send(InvocationMessage(
-                {},
-                0,
-                method,
-                arguments))
-
-        if type(arguments) is Subject:
-            arguments.connection = self
-            arguments.target = method
-            arguments.start()
