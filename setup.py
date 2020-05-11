@@ -5,7 +5,7 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
     name="signalrcore-async",
-    version="0.5.0",
+    version="0.5.2",
     author="Apollo3zehn",
     description="Asynchronous fork of signalrcore with MessagePack support: A Python SignalR Core client, with invocation auth and two way streaming. Compatible with azure / serverless functions. Also with automatic reconnect and manual reconnect.",
     keywords="signalr core client 3.1",
