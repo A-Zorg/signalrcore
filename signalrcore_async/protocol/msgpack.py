@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from enum import Enum
 
 import msgpack
@@ -58,8 +58,8 @@ class MessagePackHubProtocol(BaseHubProtocol):
             for i, argument in enumerate(message.arguments):
 
                 # date
-                if isinstance(argument, date):
-                    argument = datetime(argument.year, argument.month, argument.day)
+                if type(argument) is date:
+                    argument = datetime(argument.year, argument.month, argument.day, tzinfo=timezone.utc)
 
                 # date/time
                 if isinstance(argument, datetime):
