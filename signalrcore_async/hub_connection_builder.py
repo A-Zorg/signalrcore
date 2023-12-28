@@ -39,7 +39,8 @@ class HubConnectionBuilder(object):
         self.reconnection_handler = None
         self.keep_alive_interval = None
         self.verify_ssl = True
-        self.skip_negotiation = False # By default do not skip negotiation
+        self.ssl_context = None
+        self.skip_negotiation = False  # By default do not skip negotiation
 
     def with_url(
             self,
@@ -107,6 +108,9 @@ class HubConnectionBuilder(object):
         if "verify_ssl" in self.options.keys() and type(self.options["verify_ssl"]) is bool:
             self.verify_ssl = self.options["verify_ssl"]
 
+            if "ssl_context" in self.options.keys() and type(self.options["ssl_context"]) is ssl.SSLContext:
+                self.ssl_context = self.options["ssl_context"]
+
         self.hub = AuthHubConnection(
             self.hub_url,
             self.protocol,
@@ -115,6 +119,7 @@ class HubConnectionBuilder(object):
             reconnection_handler=self.reconnection_handler,
             headers=self.headers,
             verify_ssl=self.verify_ssl,
+            ssl_context=self.ssl_context,
             skip_negotiation=self.skip_negotiation)\
             if self.has_auth_configured else\
             BaseHubConnection(
@@ -124,6 +129,7 @@ class HubConnectionBuilder(object):
                 reconnection_handler=self.reconnection_handler,
                 headers=self.headers,
                 verify_ssl=self.verify_ssl,
+                ssl_context=self.ssl_context,
                 skip_negotiation=self.skip_negotiation)
 
         return self.hub

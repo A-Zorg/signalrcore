@@ -48,9 +48,14 @@ class WebSocketsConnection(object):
         url = self._hub_connection.url
         headers = self._hub_connection.headers
         max_size = 1_000_000_000
-        
+
+        ssl_context = ssl.SSLContext()
+        if self._hub_connection.verify_ssl:
+            if self._hub_connection.ssl_context:
+                ssl_context = self._hub_connection.ssl_context
+
         # connect
-        self._ws = await websockets.connect(url, max_size=max_size, extra_headers=headers)
+        self._ws = await websockets.connect(url, max_size=max_size, extra_headers=headers, ssl=ssl_context)
         self._hub_connection.logger.debug("-- web socket open --")
 
         # handshake
@@ -126,6 +131,7 @@ class BaseHubConnection(object):
             keep_alive_interval=15,
             reconnection_handler=None,
             verify_ssl=False,
+            ssl_context=None,
             skip_negotiation=False):
         self.skip_negotiation = skip_negotiation
         self.logger = Helpers.get_logger()
@@ -142,6 +148,7 @@ class BaseHubConnection(object):
         self._thread = None
         self._ws = None
         self.verify_ssl = verify_ssl
+        self.ssl_context = ssl_context
         self.connection_checker = ConnectionStateChecker(
             lambda: self._internal_send(PingMessage()),
             keep_alive_interval
